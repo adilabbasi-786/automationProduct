@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus, Search, Eye, Building2, X, AlertCircle } from 'lucide-react'
-import { useMockCompanies } from '../../hooks/useMockData'
+import { supabase } from '../../lib/supabase'
 
 interface CreateCompanyForm {
   companyName: string
@@ -11,8 +11,21 @@ interface CreateCompanyForm {
   companyType: string
 }
 
+type CompanyRow = {
+  id: string
+  name: string
+  owner_name: string
+  company_type: string
+  created_at: string
+  is_active: boolean
+}
+
 export default function SuperAdminCompanies() {
-  const companies = useMockCompanies()
+  const [companies, setCompanies] = useState<CompanyRow[]>([])
+  const [adminEmailByCompanyId, setAdminEmailByCompanyId] = useState<Record<string, string>>({})
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
   const [search, setSearch] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [form, setForm] = useState<CreateCompanyForm>({
@@ -20,24 +33,87 @@ export default function SuperAdminCompanies() {
   })
   const [creating, setCreating] = useState(false)
   const [success, setSuccess] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
 
-  const filtered = companies.filter(c =>
-    c.name.toLowerCase().includes(search.toLowerCase()) ||
-    c.owner_name.toLowerCase().includes(search.toLowerCase())
-  )
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return companies
+    return companies.filter(c =>
+      c.name.toLowerCase().includes(q) ||
+      c.owner_name.toLowerCase().includes(q)
+    )
+  }, [companies, search])
+
+  async function loadCompanies() {
+    setLoading(true)
+    setError(null)
+    try {
+      const [{ data: companiesData, error: companiesErr }, { data: adminsData, error: adminsErr }] =
+        await Promise.all([
+          supabase
+            .from('companies')
+            .select('id,name,owner_name,company_type,created_at,is_active')
+            .order('created_at', { ascending: false }),
+          supabase
+            .from('profiles')
+            .select('email,company_id')
+            .eq('role', 'admin')
+            .not('company_id', 'is', null),
+        ])
+
+      if (companiesErr) throw companiesErr
+      if (adminsErr) throw adminsErr
+
+      const emailMap: Record<string, string> = {}
+      for (const row of (adminsData ?? []) as Array<{ email: string; company_id: string | null }>) {
+        if (!row.company_id) continue
+        if (!emailMap[row.company_id]) emailMap[row.company_id] = row.email
+      }
+
+      setCompanies((companiesData ?? []) as CompanyRow[])
+      setAdminEmailByCompanyId(emailMap)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to load companies'
+      setError(message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadCompanies()
+  }, [])
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
     setCreating(true)
-    // Simulate API call
-    await new Promise(r => setTimeout(r, 1200))
-    setCreating(false)
-    setSuccess(true)
-    setTimeout(() => {
-      setSuccess(false)
-      setShowCreate(false)
-      setForm({ companyName: '', ownerName: '', email: '', password: '', companyType: '' })
-    }, 2000)
+    setCreateError(null)
+
+    try {
+      const payload = {
+        name: form.companyName.trim(),
+        owner_name: form.ownerName.trim(),
+        company_type: form.companyType,
+        is_active: true,
+      }
+
+      const { error: insertErr } = await supabase.from('companies').insert(payload)
+      if (insertErr) throw insertErr
+
+      await loadCompanies()
+
+      setSuccess(true)
+      setTimeout(() => {
+        setSuccess(false)
+        setShowCreate(false)
+        setForm({ companyName: '', ownerName: '', email: '', password: '', companyType: '' })
+      }, 2000)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to create company'
+      setCreateError(message)
+    } finally {
+      setCreating(false)
+    }
   }
 
   const companyTypes = ['Technology', 'Healthcare', 'Finance', 'Real Estate', 'Education', 'Retail', 'Sales', 'Import/Export', 'Other']
@@ -87,7 +163,7 @@ export default function SuperAdminCompanies() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(co => (
+              {!loading && filtered.map(co => (
                 <tr key={co.id}>
                   <td className="pl-6">
                     <div className="flex items-center gap-3">
@@ -99,7 +175,7 @@ export default function SuperAdminCompanies() {
                   </td>
                   <td><span className="badge-blue">{co.company_type}</span></td>
                   <td className="text-slate-300">{co.owner_name}</td>
-                  <td className="text-slate-400 text-xs font-mono">{co.email}</td>
+                  <td className="text-slate-400 text-xs font-mono">{adminEmailByCompanyId[co.id] ?? '—'}</td>
                   <td className="text-slate-500 text-xs">{new Date(co.created_at).toLocaleDateString()}</td>
                   <td>
                     <span className={co.is_active ? 'badge-green' : 'badge bg-slate-500/15 text-slate-400 border border-slate-500/30'}>
@@ -121,13 +197,26 @@ export default function SuperAdminCompanies() {
           </table>
         </div>
 
-        {filtered.length === 0 && (
+        {loading && (
+          <div className="py-16 text-center">
+            <p className="text-slate-500">Loading companies…</p>
+          </div>
+        )}
+
+        {!loading && filtered.length === 0 && (
           <div className="py-16 text-center">
             <Building2 size={40} className="text-dark-400 mx-auto mb-3" />
             <p className="text-slate-500">No companies found</p>
           </div>
         )}
       </div>
+
+      {error && (
+        <div className="card border border-red-500/30 bg-red-500/10 text-red-200 text-sm flex items-start gap-2">
+          <AlertCircle size={16} className="mt-0.5 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
 
       {/* Create Company Modal */}
       {showCreate && (
@@ -145,7 +234,7 @@ export default function SuperAdminCompanies() {
               <div className="py-12 text-center">
                 <div className="w-16 h-16 rounded-full bg-emerald-500/15 flex items-center justify-center text-3xl mx-auto mb-4">✓</div>
                 <h3 className="font-display text-white font-bold text-lg mb-1">Company Created!</h3>
-                <p className="text-slate-400 text-sm">Admin account has been set up successfully.</p>
+                <p className="text-slate-400 text-sm">Company has been added to the database.</p>
               </div>
             ) : (
               <form onSubmit={handleCreate} className="space-y-4">
@@ -172,6 +261,14 @@ export default function SuperAdminCompanies() {
                     {companyTypes.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
+
+                {createError && (
+                  <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200 flex items-start gap-2">
+                    <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                    <span>{createError}</span>
+                  </div>
+                )}
+
                 <div className="flex gap-3 pt-2">
                   <button type="button" onClick={() => setShowCreate(false)} className="btn-secondary flex-1 justify-center text-sm py-2.5">Cancel</button>
                   <button type="submit" disabled={creating} className="btn-primary flex-1 justify-center text-sm py-2.5 disabled:opacity-60">

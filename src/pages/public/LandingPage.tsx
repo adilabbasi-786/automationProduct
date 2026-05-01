@@ -6,10 +6,50 @@ import {
   ChevronRight, Star, Twitter, Linkedin, Github
 } from 'lucide-react'
 import Navbar from '../../components/public/Navbar'
+import { supabase } from '../../lib/supabase'
 
 export default function LandingPage() {
   const [contactForm, setContactForm] = useState({ name: '', email: '', message: '' })
   const [submitted, setSubmitted] = useState(false)
+
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [selectedPlan, setSelectedPlan] = useState('')
+  const [inquiryForm, setInquiryForm] = useState({ name: '', email: '', phone_number: '', notes: '' })
+  const [isSubmittingInquiry, setIsSubmittingInquiry] = useState(false)
+  const [inquirySubmitted, setInquirySubmitted] = useState(false)
+
+  async function handleInquirySubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setIsSubmittingInquiry(true)
+    
+    try {
+      const { error } = await supabase
+        .from('inquiry_form')
+        .insert([
+          { 
+            name: inquiryForm.name, 
+            email: inquiryForm.email, 
+            phone_number: inquiryForm.phone_number, 
+            notes: inquiryForm.notes,
+            plan_interest: selectedPlan
+          }
+        ])
+
+      if (error) throw error
+
+      setInquirySubmitted(true)
+      setInquiryForm({ name: '', email: '', phone_number: '', notes: '' })
+      setTimeout(() => {
+        setIsModalOpen(false)
+        setInquirySubmitted(false)
+      }, 3000)
+    } catch (error) {
+      console.error('Error submitting inquiry:', error)
+      alert('There was an error submitting your form. Please try again.')
+    } finally {
+      setIsSubmittingInquiry(false)
+    }
+  }
 
   function handleContact(e: React.FormEvent) {
     e.preventDefault()
@@ -21,7 +61,7 @@ export default function LandingPage() {
   const plans = [
     {
       name: 'Basic',
-      price: '$49',
+      price: '$199',
       period: '/month',
       description: 'Perfect for small businesses getting started with AI automation',
       features: [
@@ -37,7 +77,7 @@ export default function LandingPage() {
     },
     {
       name: 'Pro',
-      price: '$149',
+      price: '$399',
       period: '/month',
       description: 'For growing teams that need advanced automation capabilities',
       features: [
@@ -186,11 +226,10 @@ export default function LandingPage() {
             {plans.map((plan) => (
               <div
                 key={plan.name}
-                className={`relative rounded-2xl p-8 transition-all duration-300 ${
-                  plan.highlighted
-                    ? 'bg-gradient-to-b from-brand-600/20 to-brand-800/10 border-2 border-brand-500/60 shadow-2xl shadow-brand-500/10'
-                    : 'glass border border-dark-400 hover:border-brand-500/30'
-                }`}
+                className={`relative rounded-2xl p-8 transition-all duration-300 ${plan.highlighted
+                  ? 'bg-gradient-to-b from-brand-600/20 to-brand-800/10 border-2 border-brand-500/60 shadow-2xl shadow-brand-500/10'
+                  : 'glass border border-dark-400 hover:border-brand-500/30'
+                  }`}
               >
                 {plan.highlighted && (
                   <div className="absolute -top-4 left-1/2 -translate-x-1/2 px-4 py-1 bg-brand-500 rounded-full text-xs font-bold text-white uppercase tracking-wide">
@@ -217,16 +256,23 @@ export default function LandingPage() {
                   ))}
                 </ul>
 
-                <a
-                  href="#contact"
-                  className={`w-full text-center py-3 rounded-xl font-semibold text-sm transition-all duration-200 block ${
-                    plan.highlighted
-                      ? 'bg-brand-500 hover:bg-brand-400 text-white shadow-lg shadow-brand-500/25'
-                      : 'border border-dark-400 hover:border-brand-500/50 text-slate-300 hover:text-white hover:bg-brand-500/10'
-                  }`}
+                <button
+                  onClick={() => {
+                    if (plan.name !== 'Enterprise') {
+                      setSelectedPlan(plan.name)
+                      setIsModalOpen(true)
+                      setInquirySubmitted(false)
+                    } else {
+                      document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' })
+                    }
+                  }}
+                  className={`w-full text-center py-3 rounded-xl font-semibold text-sm transition-all duration-200 block ${plan.highlighted
+                    ? 'bg-brand-500 hover:bg-brand-400 text-white shadow-lg shadow-brand-500/25'
+                    : 'border border-dark-400 hover:border-brand-500/50 text-slate-300 hover:text-white hover:bg-brand-500/10'
+                    }`}
                 >
                   {plan.cta}
-                </a>
+                </button>
               </div>
             ))}
           </div>
@@ -309,8 +355,8 @@ export default function LandingPage() {
               <div className="space-y-4">
                 {[
                   { icon: '📧', label: 'Email', value: 'hello@automate360.ai' },
-                  { icon: '📞', label: 'Phone', value: '+1 (800) 360-AUTO' },
-                  { icon: '🌍', label: 'Location', value: 'San Francisco, CA' },
+                  { icon: '📞', label: 'Phone', value: '+1 (705) 910-8964' },
+                  { icon: '🌍', label: 'Location', value: '717, 6 Ave SW, Medicine Hat, AB T1A 4T6' },
                 ].map(c => (
                   <div key={c.label} className="flex items-center gap-4">
                     <span className="text-2xl">{c.icon}</span>
@@ -399,6 +445,88 @@ export default function LandingPage() {
           </div>
         </div>
       </footer>
+
+      {/* Inquiry Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-dark-900/80 backdrop-blur-sm fade-in">
+          <div className="glass w-full max-w-md rounded-2xl p-6 relative border border-brand-500/30">
+            <button 
+              onClick={() => setIsModalOpen(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors"
+            >
+              ✕
+            </button>
+            
+            <h3 className="text-2xl font-display font-bold text-white mb-2">
+              {selectedPlan === 'Basic' ? 'Start Free Trial' : 'Get Started'}
+            </h3>
+            <p className="text-slate-400 text-sm mb-6">
+              Fill out the form below and we'll get you set up with the {selectedPlan} plan.
+            </p>
+
+            {inquirySubmitted ? (
+              <div className="flex flex-col items-center justify-center py-8 text-center">
+                <div className="w-16 h-16 rounded-full bg-emerald-500/15 flex items-center justify-center text-emerald-400 text-3xl mb-4">✓</div>
+                <h4 className="font-display font-bold text-white text-xl mb-2">Request Received!</h4>
+                <p className="text-slate-400">We'll be in touch with you shortly.</p>
+              </div>
+            ) : (
+              <form onSubmit={handleInquirySubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">Full Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={inquiryForm.name}
+                    onChange={e => setInquiryForm({ ...inquiryForm, name: e.target.value })}
+                    className="input-dark w-full"
+                    placeholder="John Doe"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">Email Address</label>
+                  <input
+                    type="email"
+                    required
+                    value={inquiryForm.email}
+                    onChange={e => setInquiryForm({ ...inquiryForm, email: e.target.value })}
+                    className="input-dark w-full"
+                    placeholder="john@example.com"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">Phone Number</label>
+                  <input
+                    type="tel"
+                    required
+                    value={inquiryForm.phone_number}
+                    onChange={e => setInquiryForm({ ...inquiryForm, phone_number: e.target.value })}
+                    className="input-dark w-full"
+                    placeholder="+1 (555) 000-0000"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">Notes</label>
+                  <textarea
+                    rows={3}
+                    value={inquiryForm.notes}
+                    onChange={e => setInquiryForm({ ...inquiryForm, notes: e.target.value })}
+                    className="input-dark w-full resize-none"
+                    placeholder="Any specific requirements?"
+                  />
+                </div>
+                <button 
+                  type="submit" 
+                  disabled={isSubmittingInquiry}
+                  className="btn-primary w-full justify-center mt-2"
+                >
+                  {isSubmittingInquiry ? 'Submitting...' : 'Submit Request'}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
